@@ -46,7 +46,6 @@ func (s *ServiceKeeper) initAllServices(ctx context.Context) error {
 	return nil
 }
 
-
 func (s *ServiceKeeper) checkState(old, new int32) bool {
 	return atomic.CompareAndSwapInt32(&s.state, old, new)
 }
