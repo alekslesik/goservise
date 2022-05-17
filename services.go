@@ -1,6 +1,9 @@
 package service
 
-import "context"
+import (
+	"context"
+	"sync/atomic"
+)
 
 type (
 	Service interface {
@@ -25,6 +28,15 @@ type (
 	}
 )
 
+const (
+	srvStateInit int32 = iota
+	srvStateReady
+	srvStateRunnig
+	srvStateShutdown
+	srvStateOff
+
+)
+
 func (s *ServiceKeeper) initAllServices(ctx context.Context) error {
 	for i := range s.Services {
 		if err := s.Services[i].Init(ctx); err != nil {
@@ -32,4 +44,17 @@ func (s *ServiceKeeper) initAllServices(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+
+func (s *ServiceKeeper) checkState(old, new int32) bool {
+	return atomic.CompareAndSwapInt32(&s.state, old, new)
+}
+
+func (s *ServiceKeeper) Init(ctx context.Context) error  {
+	if !s.checkState(srvStateInit, srvStateReady) {
+		return ErrWrongState
+	}
+
+	return s.initAllServices(ctx)
 }
