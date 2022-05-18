@@ -37,15 +37,6 @@ const (
 
 )
 
-func (s *ServiceKeeper) initAllServices(ctx context.Context) error {
-	for i := range s.Services {
-		if err := s.Services[i].Init(ctx); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *ServiceKeeper) checkState(old, new int32) bool {
 	return atomic.CompareAndSwapInt32(&s.state, old, new)
 }
@@ -54,6 +45,14 @@ func (s *ServiceKeeper) Init(ctx context.Context) error  {
 	if !s.checkState(srvStateInit, srvStateReady) {
 		return ErrWrongState
 	}
-
 	return s.initAllServices(ctx)
+}
+
+func (s *ServiceKeeper) initAllServices(ctx context.Context) error {
+	for i := range s.Services {
+		if err := s.Services[i].Init(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
