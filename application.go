@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,9 +38,49 @@ type (
 		// InitializationTimeout limits the time to initialize resources.
 		// If the resources are not initialized within the allotted time, the application will not be launched
 		InitializationTimeout time.Duration
+
+		appState int32
+		err error
+		mux sync.Mutex
+		halt chan struct{}
+		done chan struct{}
+
+	}
+)
+
+const (
+	appStateInit int32 = iota
+	appStateRunning
+	appStateHalt
+	appStateShutdown
+)
+
+func (a *Application) Run() error {
+	if a.MainFunc == nil {
+		// if this func is not set, then nothing to do
+		return ErrMainOmitted
 	}
 
-)
+	if a.checkState(appStateInit, appStateRunning) {
+		// can't enter here twice
+		if err := a.init(); err != nil {
+			a.err = err
+			a.appState = appStateShutdown
+			// resources initialisation isn't done
+			return err
+		}
+
+		// by means servicesRunning we synchronice resources lifecycle with
+		// application lifecycle
+		var servicesRunning = make(chan struct{})
+		if a.Resources != nil {
+			go func ()  {
+				defer close(servicesRunning) //this signal about Watch stopped
+				defer a.shutdown
+			}
+		}
+	}
+}
 
 func (a *Application) init() error  {
 	if a.Resources != nil {
@@ -47,4 +89,20 @@ func (a *Application) init() error  {
 		return a.Resources.Init(ctx)
 	}
 	return nil
+}
+
+func (a *Application) checkState(old, new int32) bool {
+	return atomic.CompareAndSwapInt32(&a.appState, old, new)
+}
+
+// Halt signals the application to terminate the current computational processes and prepare to stop the application
+func (a *Application) Halt() {
+	if a.checkState(appStateRunning, appStateHalt) {
+		close(a.halt)
+	}
+}
+
+// Shutdown stops the application immediately. At this point all calculations should be completed
+func (a *Application) Shutdown()  {
+	a.Halt()
 }

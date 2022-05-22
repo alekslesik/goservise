@@ -41,7 +41,7 @@ func (s *ServiceKeeper) checkState(old, new int32) bool {
 	return atomic.CompareAndSwapInt32(&s.state, old, new)
 }
 
-func (s *ServiceKeeper) Init(ctx context.Context) error  {
+func (s *ServiceKeeper) Init(ctx context.Context) error {
 	if !s.checkState(srvStateInit, srvStateReady) {
 		return ErrWrongState
 	}
@@ -55,4 +55,16 @@ func (s *ServiceKeeper) initAllServices(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *ServiceKeeper) Watch(context.Context) error {
+	return ErrWrongState
+}
+
+func (s *ServiceKeeper) Stop() {
+
+}
+
+func (s *ServiceKeeper) Release() {
+
 }
