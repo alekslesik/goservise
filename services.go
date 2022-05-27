@@ -65,6 +65,9 @@ func (s *ServiceKeeper) Stop() {
 
 }
 
-func (s *ServiceKeeper) Release() {
-
+func (s *ServiceKeeper) Release() error {
+	if s.checkState(srvStateShutdown, srvStateOff) {
+		return s.release()
+	}
+	return ErrWrongState
 }

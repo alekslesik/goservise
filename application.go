@@ -2,9 +2,15 @@ package service
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	"golang.org/x/tools/go/analysis/passes/nilfunc"
 )
 
 type (
@@ -76,10 +82,25 @@ func (a *Application) Run() error {
 		if a.Resources != nil {
 			go func ()  {
 				defer close(servicesRunning) //this signal about Watch stopped
-				defer a.shutdown
-			}
+				defer a.Shutdown()
+				a.setError(a.Resources.Watch(context.TODO()))
+			}()
 		}
+
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+		// run main running thread
+		a.setError(a.run(sig))
+		// in this place app should continue
+		if a.Resources != nil {
+			a.Resources.Stop() //receive signal to resources
+			<- servicesRunning // waiting continue Watch
+			a.setError(a.Resources.Release()) // empty resources
+		}
+		return a.getError()
 	}
+	return ErrWrongState
 }
 
 func (a *Application) init() error  {
@@ -88,6 +109,53 @@ func (a *Application) init() error  {
 		defer cancel()
 		return a.Resources.Init(ctx)
 	}
+	return nil
+}
+
+func (a *Application) run(sig <- chan os.Signal) error {
+	defer a.Shutdown()
+	var errRun = make(chan error, 1)
+	go func() {
+		defer close(errRun)
+		if err := a.MainFunc(a, a.halt); err != nil {
+			errRun <- err
+		}
+	}()
+
+	var errHlt = make(chan error, 1)
+	go func() {
+		defer close(errHlt)
+		select {
+		case <- sig:
+			a.Halt()
+
+			select {
+			case <- time.After(a.TerminationTimeout):
+				errHlt <- ErrTermTimeout
+			case <- a.done:
+				//ok
+			}
+
+			// if shutdown
+		case <- a.done:
+			//exit immediately
+
+		}
+	}()
+
+	select {
+	case err, ok := <-errRun:
+		if ok && err != nil {
+			return err
+		}
+	case err, ok := <- errHlt:
+		if ok && err != nil {
+			return err
+		}
+	case <- a.done:
+		//shutdown
+	}
+
 	return nil
 }
 
@@ -105,4 +173,20 @@ func (a *Application) Halt() {
 // Shutdown stops the application immediately. At this point all calculations should be completed
 func (a *Application) Shutdown()  {
 	a.Halt()
+	if a.checkState(appStateHalt, appStateShutdown) {
+		close(a.done)
+	}
+}
+
+func (a *Application) setError(err error)  {
+	if err == nil {
+		return
+	}
+
+	a.mux.Lock()
+	if a.err == nil {
+		a.err = err
+	}
+	a.mux.Unlock()
+	a.Shutdown()
 }
